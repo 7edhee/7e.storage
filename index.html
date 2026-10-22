@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stash – file storage on GoFile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e8edf1;--panel:#f7f9fb;--ink:#14202b;--mute:#5d6d7b;--line:#c5d0d9;--accent:#2f5bff;--accent-ink:#fff;--danger:#d6411b}
+@media (prefers-color-scheme:dark){:root{--bg:#10171d;--panel:#18222b;--ink:#e8eef3;--mute:#8a9aa8;--line:#2c3a46;--accent:#6f8cff;--accent-ink:#0b1220;--danger:#ff7a55}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "IBM Plex Sans",system-ui,sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 20px 80px}
+h1,h2{font-family:"Bricolage Grotesque",system-ui,sans-serif;margin:0;letter-spacing:-.02em}
+h1{font-size:clamp(40px,8vw,72px);font-weight:800;line-height:1}
+h2{font-size:22px;font-weight:800}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:28px}
+header p{margin:8px 0 0;color:var(--mute);max-width:42ch}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 14px}
+button:hover{border-color:var(--accent)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+.drop{display:block;border:2px dashed var(--accent);border-radius:16px;background:var(--panel);padding:56px 20px;text-align:center;cursor:pointer;transition:background .15s}
+.drop.over{background:color-mix(in srgb,var(--accent) 14%,var(--panel))}
+.drop strong{font:800 28px "Bricolage Grotesque",sans-serif;display:block}
+.drop span{color:var(--mute)}
+.drop input{display:none}
+section{margin-top:32px}
+.row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:8px}
+.row .name{font-weight:500;overflow-wrap:anywhere}
+.row .meta{color:var(--mute);font-size:14px}
+.row .acts{grid-row:1/3;grid-column:2;display:flex;gap:6px}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;grid-column:1/3}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .1s}
+.del{color:var(--danger)}
+.empty{color:var(--mute);padding:16px 0}
+details{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+summary{cursor:pointer;font-weight:500}
+details label{display:block;margin-top:12px;font-size:14px;color:var(--mute)}
+details input{width:100%;margin-top:4px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+#msg{min-height:24px;margin-top:12px;color:var(--danger)}
+.tools{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Stash</h1>
+      <p>Drop files in, get a share link back. Stored on GoFile.</p>
+    </div>
+  </header>
+
+  <label class="drop" id="drop" for="picker">
+    <strong>Drop files here</strong>
+    <span>or click to choose. Multiple files are fine.</span>
+    <input type="file" id="picker" multiple>
+  </label>
+  <div id="msg" role="status" aria-live="polite"></div>
+
+  <details>
+    <summary>Account settings (optional)</summary>
+    <label>GoFile API token — uploads then go to your account and can be deleted here
+      <input id="token" type="password" placeholder="Paste token from your GoFile profile" autocomplete="off">
+    </label>
+    <label>Website token — only needed to list account files (GoFile may require this value)
+      <input id="wt" type="text" placeholder="Website token" autocomplete="off">
+    </label>
+    <div style="margin-top:12px"><button class="primary" id="save">Save settings</button></div>
+  </details>
+
+  <section>
+    <div class="tools">
+      <h2>Uploads</h2>
+      <div>
+        <button id="load">Load account files</button>
+        <button id="clear">Clear list</button>
+      </div>
+    </div>
+    <div id="list"></div>
+  </section>
+</main>
+
+<script>
+const API = "https://api.gofile.io";
+const $ = s => document.querySelector(s);
+const store = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch(e){ return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+};
+let token = store.get("token", ""), wt = store.get("wt", ""), items = store.get("items", []);
+$("#token").value = token; $("#wt").value = wt;
+
+const fmt = n => { if(!n && n!==0) return ""; const u=["B","KB","MB","GB"]; let i=0; while(n>=1024&&i<3){n/=1024;i++} return n.toFixed(i?1:0)+" "+u[i]; };
+const say = t => $("#msg").textContent = t || "";
+const auth = () => token ? { Authorization: "Bearer " + token } : {};
+
+function esc(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+
+function render(){
+  const list = $("#list");
+  if(!items.length){ list.innerHTML = '<p class="empty">Nothing here yet. Drop a file above to upload it.</p>'; return; }
+  list.innerHTML = items.map((it,i) => `
+    <div class="row" data-i="${i}">
+      <div class="name">${esc(it.name)}</div>
+      <div class="acts">
+        ${it.link ? `<button data-a="copy">Copy link</button><button data-a="open">Open</button>` : ""}
+        ${it.id && token ? `<button class="del" data-a="del">Delete</button>` : ""}
+      </div>
+      <div class="meta">${fmt(it.size)}${it.date ? " · " + new Date(it.date).toLocaleDateString() : ""}${it.err ? " · " + esc(it.err) : ""}</div>
+      ${it.progress != null && !it.link && !it.err ? `<div class="bar"><i style="width:${it.progress}%"></i></div>` : ""}
+    </div>`).join("");
+}
+function persist(){ store.set("items", items.filter(i => i.link).slice(0, 200)); }
+
+async function getServer(){
+  const r = await fetch(API + "/servers");
+  const j = await r.json();
+  if(j.status !== "ok") throw new Error("Could not get an upload server");
+  return j.data.servers[0].name;
+}
+
+function uploadOne(file, server, entry){
+  return new Promise(resolve => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const x = new XMLHttpRequest();
+    x.open("POST", `https://${server}.gofile.io/contents/uploadfile`);
+    if(token) x.setRequestHeader("Authorization", "Bearer " + token);
+    x.upload.onprogress = e => { if(e.lengthComputable){ entry.progress = Math.round(e.loaded/e.total*100); render(); } };
+    x.onload = () => {
+      try {
+        const j = JSON.parse(x.responseText);
+        if(j.status !== "ok") throw new Error(j.status || "Upload failed");
+        entry.link = j.data.downloadPage; entry.id = j.data.id || j.data.fileId; entry.date = Date.now();
+      } catch(e){ entry.err = "Upload failed: " + e.message; }
+      resolve();
+    };
+    x.onerror = () => { entry.err = "Network error. Check your connection and try again."; resolve(); };
+    x.send(fd);
+  });
+}
+
+async function handleFiles(files){
+  if(!files.length) return;
+  say("");
+  let server;
+  try { server = await getServer(); } catch(e){ say(e.message + ". Try again in a moment."); return; }
+  for(const f of files){
+    const entry = { name: f.name, size: f.size, progress: 0 };
+    items.unshift(entry); render();
+    await uploadOne(f, server, entry);
+    render(); persist();
+  }
+}
+
+const drop = $("#drop");
+["dragenter","dragover"].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", ev => handleFiles([...ev.dataTransfer.files]));
+$("#picker").addEventListener("change", ev => { handleFiles([...ev.target.files]); ev.target.value = ""; });
+
+$("#list").addEventListener("click", async ev => {
+  const b = ev.target.closest("button"); if(!b) return;
+  const i = +b.closest(".row").dataset.i, it = items[i], a = b.dataset.a;
+  if(a === "copy"){ try { await navigator.clipboard.writeText(it.link); b.textContent = "Copied"; setTimeout(()=>b.textContent="Copy link",1500); } catch(e){ say("Copy failed. Open the link and copy it from the address bar."); } }
+  if(a === "open") window.open(it.link, "_blank", "noopener");
+  if(a === "del"){
+    if(!confirm(`Delete "${it.name}" from GoFile? This can't be undone.`)) return;
+    try {
+      const r = await fetch(API + "/contents", { method:"DELETE", headers:{ "Content-Type":"application/json", ...auth() }, body: JSON.stringify({ contentsId: it.id }) });
+      const j = await r.json();
+      if(j.status !== "ok") throw new Error(j.status);
+      items.splice(i,1); render(); persist();
+    } catch(e){ say("Could not delete: " + e.message); }
+  }
+});
+
+$("#save").addEventListener("click", () => {
+  token = $("#token").value.trim(); wt = $("#wt").value.trim();
+  store.set("token", token); store.set("wt", wt);
+  say(""); render();
+});
+$("#clear").addEventListener("click", () => { items = []; persist(); store.set("items", []); render(); });
+
+$("#load").addEventListener("click", async () => {
+  if(!token){ say("Add your API token in Account settings to load account files."); return; }
+  say("Loading…");
+  try {
+    let r = await fetch(API + "/accounts/getid", { headers: auth() });
+    let j = await r.json(); if(j.status !== "ok") throw new Error("Token not accepted");
+    r = await fetch(`${API}/accounts/${j.data.id}`, { headers: auth() });
+    j = await r.json(); if(j.status !== "ok") throw new Error("Could not read account");
+    const root = j.data.rootFolder;
+    r = await fetch(`${API}/contents/${root}${wt ? "?wt=" + encodeURIComponent(wt) : ""}`, { headers: auth() });
+    j = await r.json(); if(j.status !== "ok") throw new Error(j.status + (wt ? "" : " (a website token may be required)"));
+    const kids = Object.values(j.data.children || {}).filter(c => c.type === "file");
+    const have = new Set(items.map(i => i.id));
+    kids.forEach(c => { if(!have.has(c.id)) items.push({ id:c.id, name:c.name, size:c.size, link:c.link || `https://gofile.io/d/${root}`, date:(c.createTime||0)*1000 }); });
+    say(kids.length ? "" : "Your account root folder has no files."); render(); persist();
+  } catch(e){ say("Could not load files: " + e.message); }
+});
+
+render();
+</script>
+</body>
+</html>
