@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stash – file storage on GoFile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="lock" id="lock" role="dialog" aria-modal="true" aria-labelledby="lockTitle">
+  <form id="lockForm">
+    <h1 id="lockTitle">Stash</h1>
+    <p id="lockHelp">Enter the password to continue.</p>
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
+    <button class="primary" id="lockBtn" type="submit">Unlock</button>
+    <p id="lockErr" role="alert"></p>
+    <div id="setupOut" hidden>
+      <p>Copy this line into index.html, replacing the existing <code>const PASS_HASH</code> line, then commit.</p>
+      <textarea id="hashOut" readonly></textarea>
+      <button type="button" id="copyHash">Copy line</button>
+      <button type="button" id="skipLock">Open site for now</button>
+    </div>
+  </form>
+</div>
+<div class="lock" id="keyPage" role="dialog" aria-modal="true" aria-labelledby="keyTitle" hidden>
+  <form id="keyForm">
+    <h1 id="keyTitle">Connect GoFile</h1>
+    <p>Paste your GoFile API key to upload to your own account. You can find it on your GoFile profile page.</p>
+    <input id="keyInput" type="password" autocomplete="off" placeholder="API key">
+    <input id="wtInput" type="text" autocomplete="off" placeholder="Website token (optional, for listing account files)">
+    <button class="primary" id="keyBtn" type="submit">Connect</button>
+    <button type="button" id="guestBtn">Continue as guest</button>
+    <p id="keyErr" class="err" role="alert"></p>
+    <p>Your key stays in this browser only. Guests can upload and share, but can't delete files later.</p>
+  </form>
+</div>
+<main id="app" hidden>
+  <header>
+    <div>
+      <h1>Stash</h1>
+      <p>Drop files in, get a share link back. Stored on GoFile.</p>
+    </div>
+  </header>
+
+  <label class="drop" id="drop" for="picker">
+    <strong>Drop files here</strong>
+    <span>or click to choose. Multiple files are fine.</span>
+    <input type="file" id="picker" multiple>
+  </label>
+  <div id="msg" role="status" aria-live="polite"></div>
+  <div class="acct">
+    <span id="acctState"></span>
+    <button id="changeKey">Change API key</button>
+  </div>
+
+  <section>
+    <div class="tools">
+      <h2>Uploads</h2>
+      <div>
+        <button id="load">Load account files</button>
+        <button id="clear">Clear list</button>
+        <button id="relock">Lock</button>
+      </div>
+    </div>
+    <p class="hint">Drag a file by its handle down into the slit to delete it.</p>
+    <div class="shredder" id="shredder"><div class="sh-area" id="list"></div><div class="sh-slit"></div></div>
+  </section>
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>
